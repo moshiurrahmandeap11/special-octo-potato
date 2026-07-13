@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import bcrypt from "bcryptjs";
 import User, { IUser } from "../models/User.js";
 import { signToken } from "../utils/jwt.js";
+import { verifyOpenAIToken } from "../utils/OpenAIAuth.js";
 
 // Default credits granted on registration (once only)
 const DEFAULT_CREDITS: Record<string, number> = {
@@ -77,24 +78,33 @@ export const login = async (req: Request, res: Response): Promise<void> => {
 };
 
 /**
- * OpenAI sign-in. If the email already exists, logs the user in;
- * otherwise, creates a new supporter account (50 default credits).
+ * OpenAI OAuth sign-in. The Next.js client performs the OpenAI redirect to
+ * GOOGLE_REDIRECT_URI, receives an OpenAI ID token, and sends it here.
+ * We verify it server-side, then upsert a supporter account (50 credits).
  */
 export const OpenAILogin = async (req: Request, res: Response): Promise<void> => {
-  const { name, email, photoURL } = req.body;
-  if (!email) {
-    res.status(400).json({ success: false, message: "Email is required for OpenAI sign-in." });
+  const { idToken } = req.body;
+  if (!idToken) {
+    res.status(400).json({ success: false, message: "OpenAI ID token is required." });
     return;
   }
 
-  const normalizedEmail = email.toLowerCase();
+  let profile;
+  try {
+    profile = await verifyOpenAIToken(idToken);
+  } catch (err) {
+    res.status(401).json({ success: false, message: `OpenAI auth failed: ${(err as Error).message}` });
+    return;
+  }
+
+  const normalizedEmail = profile.email.toLowerCase();
   let user = await User.findOne({ email: normalizedEmail });
 
   if (!user) {
     user = await User.create({
-      name: name || "OpenAI User",
+      name: profile.name,
       email: normalizedEmail,
-      photoURL: photoURL || "https://i.ibb.co/0Q8c0cX/default.png",
+      photoURL: profile.picture || "https://i.ibb.co/0Q8c0cX/default.png",
       role: "supporter",
       credits: DEFAULT_CREDITS.supporter,
     });
