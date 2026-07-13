@@ -3,3 +3,6 @@ dist
 .env
 *.log
 .DS_Store
+# test helpers (local only)
+test-helper/
+server.log
