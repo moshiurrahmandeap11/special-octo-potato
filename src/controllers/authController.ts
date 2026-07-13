@@ -1,0 +1,114 @@
+import { Request, Response } from "express";
+import bcrypt from "bcryptjs";
+import User, { IUser } from "../models/User.js";
+import { signToken } from "../utils/jwt.js";
+
+// Default credits granted on registration (once only)
+const DEFAULT_CREDITS: Record<string, number> = {
+  supporter: 50,
+  creator: 20,
+  admin: 0,
+};
+
+const sanitizeUser = (user: IUser) => ({
+  _id: user._id,
+  name: user.name,
+  email: user.email,
+  photoURL: user.photoURL,
+  role: user.role,
+  credits: user.credits,
+  createdAt: user.createdAt,
+});
+
+export const register = async (req: Request, res: Response): Promise<void> => {
+  const { name, email, password, photoURL, role } = req.body;
+
+  if (!name || !email || !password || !role) {
+    res.status(400).json({ success: false, message: "Name, email, password and role are required." });
+    return;
+  }
+
+  if (role !== "supporter" && role !== "creator") {
+    res.status(400).json({ success: false, message: "Role must be 'supporter' or 'creator'." });
+    return;
+  }
+
+  const existing = await User.findOne({ email: email.toLowerCase() });
+  if (existing) {
+    res.status(409).json({ success: false, message: "An account with this email already exists." });
+    return;
+  }
+
+  const hashed = await bcrypt.hash(password, 10);
+  const user = await User.create({
+    name,
+    email: email.toLowerCase(),
+    password: hashed,
+    photoURL: photoURL || "https://i.ibb.co/0Q8c0cX/default.png",
+    role,
+    credits: DEFAULT_CREDITS[role] ?? 0,
+  });
+
+  const token = signToken({ id: String(user._id), name: user.name, email: user.email, role: user.role });
+  res.status(201).json({ success: true, token, user: sanitizeUser(user) });
+};
+
+export const login = async (req: Request, res: Response): Promise<void> => {
+  const { email, password } = req.body;
+  if (!email || !password) {
+    res.status(400).json({ success: false, message: "Email and password are required." });
+    return;
+  }
+
+  const user = await User.findOne({ email: email.toLowerCase() }).select("+password");
+  if (!user || !user.password) {
+    res.status(401).json({ success: false, message: "Invalid email or password." });
+    return;
+  }
+
+  const isMatch = await bcrypt.compare(password, user.password);
+  if (!isMatch) {
+    res.status(401).json({ success: false, message: "Invalid email or password." });
+    return;
+  }
+
+  const token = signToken({ id: String(user._id), name: user.name, email: user.email, role: user.role });
+  res.status(200).json({ success: true, token, user: sanitizeUser(user) });
+};
+
+/**
+ * OpenAI sign-in. If the email already exists, logs the user in;
+ * otherwise, creates a new supporter account (50 default credits).
+ */
+export const OpenAILogin = async (req: Request, res: Response): Promise<void> => {
+  const { name, email, photoURL } = req.body;
+  if (!email) {
+    res.status(400).json({ success: false, message: "Email is required for OpenAI sign-in." });
+    return;
+  }
+
+  const normalizedEmail = email.toLowerCase();
+  let user = await User.findOne({ email: normalizedEmail });
+
+  if (!user) {
+    user = await User.create({
+      name: name || "OpenAI User",
+      email: normalizedEmail,
+      photoURL: photoURL || "https://i.ibb.co/0Q8c0cX/default.png",
+      role: "supporter",
+      credits: DEFAULT_CREDITS.supporter,
+    });
+  }
+
+  const token = signToken({ id: String(user._id), name: user.name, email: user.email, role: user.role });
+  res.status(200).json({ success: true, token, user: sanitizeUser(user) });
+};
+
+export const getMe = async (req: Request, res: Response): Promise<void> => {
+  const user = await User.findById(req.user!.id);
+  if (!user) {
+    res.status(404).json({ success: false, message: "User not found." });
+    return;
+  }
+  res.status(200).json({ success: true, user: sanitizeUser(user) });
+};
