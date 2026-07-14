@@ -116,9 +116,9 @@ export const updateCampaign = async (req: Request, res: Response): Promise<void>
 
 // Delete a campaign and refund all approved contributors
 export const deleteCampaign = async (req: Request, res: Response): Promise<void> => {
-  const campaign = await Campaign.findById(req.params.id);
+  const campaign = await Campaign.findOne({ _id: req.params.id, creatorEmail: req.user!.email });
   if (!campaign) {
-    res.status(404).json({ success: false, message: "Campaign not found." });
+    res.status(404).json({ success: false, message: "Campaign not found or not owned by you." });
     return;
   }
 

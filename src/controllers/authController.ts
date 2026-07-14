@@ -2,7 +2,7 @@ import { Request, Response } from "express";
 import bcrypt from "bcryptjs";
 import User, { IUser } from "../models/User.js";
 import { signToken } from "../utils/jwt.js";
-import { verifyOpenAIToken } from "../utils/OpenAIAuth.js";
+import { verifyGoogleToken } from "../utils/GoogleAuth.js";
 
 // Default credits granted on registration (once only)
 const DEFAULT_CREDITS: Record<string, number> = {
@@ -78,11 +78,11 @@ export const login = async (req: Request, res: Response): Promise<void> => {
 };
 
 /**
- * OpenAI OAuth sign-in. The Next.js client performs the OpenAI redirect to
- * GOOGLE_REDIRECT_URI, receives an OpenAI ID token, and sends it here.
+ * Google OAuth sign-in. The Next.js client performs the Google redirect to
+ * GOOGLE_REDIRECT_URI, receives a Google ID token, and sends it here.
  * We verify it server-side, then upsert a supporter account (50 credits).
  */
-export const OpenAILogin = async (req: Request, res: Response): Promise<void> => {
+export const googleLogin = async (req: Request, res: Response): Promise<void> => {
   const { idToken } = req.body;
   if (!idToken) {
     res.status(400).json({ success: false, message: "OpenAI ID token is required." });
@@ -91,9 +91,9 @@ export const OpenAILogin = async (req: Request, res: Response): Promise<void> =>
 
   let profile;
   try {
-    profile = await verifyOpenAIToken(idToken);
+    profile = await verifyGoogleToken(idToken);
   } catch (err) {
-    res.status(401).json({ success: false, message: `OpenAI auth failed: ${(err as Error).message}` });
+    res.status(401).json({ success: false, message: `Google auth failed: ${(err as Error).message}` });
     return;
   }
 

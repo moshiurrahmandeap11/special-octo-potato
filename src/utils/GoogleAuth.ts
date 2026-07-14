@@ -3,10 +3,10 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
-const OPENAI_TOKEN_ISSUER = "https://accounts.OpenAI.com";
-const OPENAI_JWKS_URL = "https://www.OpenAIapis.com/oauth2/v3/certs";
+const GOOGLE_TOKEN_ISSUER = "https://accounts.google.com";
+const GOOGLE_JWKS_URL = "https://www.googleapis.com/oauth2/v3/certs";
 
-export interface OpenAIUserInfo {
+export interface GoogleUserInfo {
   email: string;
   name: string;
   picture: string;
@@ -23,17 +23,17 @@ interface JWK {
 }
 
 /**
- * Fetches OpenAI's public signing keys (JWKS) and returns a resolver for
+ * Fetches Google's public signing keys (JWKS) and returns a resolver for
  * jsonwebtoken's `jwt.verify` `key` callback.
  */
 const getKey = async (header: JwtHeader, callback: SigningKeyCallback): Promise<void> => {
   try {
-    const res = await fetch(OPENAI_JWKS_URL);
+    const res = await fetch(GOOGLE_JWKS_URL);
     if (!res.ok) throw new Error(`Failed to fetch JWKS: ${res.status}`);
     const data = (await res.json()) as { keys: JWK[] };
     const key = data.keys.find((k) => k.kid === header.kid);
     if (!key) {
-      callback(new Error("Unable to find matching OpenAI signing key."));
+      callback(new Error("Unable to find matching Google signing key."));
       return;
     }
     // Convert JWK to a PEM-less public key object accepted by jsonwebtoken
@@ -44,27 +44,27 @@ const getKey = async (header: JwtHeader, callback: SigningKeyCallback): Promise<
 };
 
 /**
- * Verifies a OpenAI OAuth ID token (sent by the client after the OpenAI
- * redirect) using OpenAI's public keys, and returns the user profile.
+ * Verifies a Google OAuth ID token (sent by the client after the Google
+ * redirect) using Google's public keys, and returns the user profile.
  */
-export const verifyOpenAIToken = (idToken: string): Promise<OpenAIUserInfo> => {
+export const verifyGoogleToken = (idToken: string): Promise<GoogleUserInfo> => {
   return new Promise((resolve, reject) => {
     jwt.verify(
       idToken,
       getKey,
       {
         audience: process.env.GOOGLE_CLIENT_ID,
-        issuer: OPENAI_TOKEN_ISSUER,
+        issuer: GOOGLE_TOKEN_ISSUER,
         algorithms: ["RS256"],
       },
       (err, decoded) => {
         if (err || !decoded) {
-          reject(new Error(`OpenAI token verification failed: ${err?.message ?? "unknown"}`));
+          reject(new Error(`Google token verification failed: ${err?.message ?? "unknown"}`));
           return;
         }
         const payload = decoded as Record<string, unknown>;
         if (!payload.email) {
-          reject(new Error("OpenAI token missing email."));
+          reject(new Error("Google token missing email."));
           return;
         }
         resolve({
