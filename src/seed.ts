@@ -13,28 +13,35 @@ const seedAdmin = async (): Promise<void> => {
   const password = process.env.ADMIN_PASSWORD ?? "Admin@12345";
   const name = process.env.ADMIN_NAME ?? "Platform Admin";
   const photo = process.env.ADMIN_PHOTO ?? "https://i.ibb.co/0Q8c0cX/admin.png";
+  const normalizedEmail = email.toLowerCase();
+  const hashed = await bcrypt.hash(password, 10);
 
-  const existing = await User.findOne({ email: email.toLowerCase() });
+  const existing = await User.findOne({ email: normalizedEmail }).select("+password");
   if (existing) {
-    console.log("ℹ️  Admin user already exists. Skipping.");
+    existing.name = name;
+    existing.password = hashed;
+    existing.photoURL = photo;
+    existing.role = "admin";
+    await existing.save();
+    console.log(`Admin user synchronized: ${normalizedEmail}`);
   } else {
-    const hashed = await bcrypt.hash(password, 10);
     await User.create({
       name,
-      email: email.toLowerCase(),
+      email: normalizedEmail,
       password: hashed,
       photoURL: photo,
       role: "admin",
       credits: 0,
     });
-    console.log(`✅ Admin user created: ${email}`);
+    console.log(`Admin user created: ${normalizedEmail}`);
   }
 
   await mongoose.disconnect();
-  console.log("👋 Done.");
+  console.log("Done.");
 };
 
-seedAdmin().catch((err) => {
-  console.error("Seeding failed:", err);
+seedAdmin().catch(async (error) => {
+  console.error("Seeding failed:", error);
+  await mongoose.disconnect();
   process.exit(1);
 });

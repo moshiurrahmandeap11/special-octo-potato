@@ -5,7 +5,7 @@ export type UserRole = "supporter" | "creator" | "admin";
 export interface IUser extends Document {
   name: string;
   email: string;
-  password?: string; // not set for OpenAI-only accounts
+  password?: string; // not set for Google-only accounts
   photoURL: string;
   role: UserRole;
   credits: number;

@@ -1,9 +1,13 @@
 import jwt, { JwtHeader, SigningKeyCallback } from "jsonwebtoken";
 import dotenv from "dotenv";
+import { createPublicKey, type JsonWebKey } from "node:crypto";
 
 dotenv.config();
 
-const GOOGLE_TOKEN_ISSUER = "https://accounts.google.com";
+const GOOGLE_TOKEN_ISSUERS: [string, string] = [
+  "https://accounts.google.com",
+  "accounts.google.com",
+];
 const GOOGLE_JWKS_URL = "https://www.googleapis.com/oauth2/v3/certs";
 
 export interface GoogleUserInfo {
@@ -36,8 +40,8 @@ const getKey = async (header: JwtHeader, callback: SigningKeyCallback): Promise<
       callback(new Error("Unable to find matching Google signing key."));
       return;
     }
-    // Convert JWK to a PEM-less public key object accepted by jsonwebtoken
-    callback(null, key as unknown as jwt.Secret);
+    const publicKey = createPublicKey({ key: key as unknown as JsonWebKey, format: "jwk" });
+    callback(null, publicKey);
   } catch (err) {
     callback(err as Error);
   }
@@ -54,7 +58,7 @@ export const verifyGoogleToken = (idToken: string): Promise<GoogleUserInfo> => {
       getKey,
       {
         audience: process.env.GOOGLE_CLIENT_ID,
-        issuer: GOOGLE_TOKEN_ISSUER,
+        issuer: GOOGLE_TOKEN_ISSUERS,
         algorithms: ["RS256"],
       },
       (err, decoded) => {
@@ -65,6 +69,10 @@ export const verifyGoogleToken = (idToken: string): Promise<GoogleUserInfo> => {
         const payload = decoded as Record<string, unknown>;
         if (!payload.email) {
           reject(new Error("Google token missing email."));
+          return;
+        }
+        if (payload.email_verified !== true) {
+          reject(new Error("Google account email is not verified."));
           return;
         }
         resolve({

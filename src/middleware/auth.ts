@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import { verifyToken } from "../utils/jwt.js";
 import type { JwtPayload } from "../utils/jwt.js";
+import User from "../models/User.js";
 
 // Augment Express Request with the current user payload
 declare global {
@@ -16,11 +17,11 @@ declare global {
  * Verifies the Bearer JWT from the Authorization header and attaches the
  * decoded payload to req.user.
  */
-export const protect = (
+export const protect = async (
   req: Request,
   res: Response,
   next: NextFunction
-): void => {
+): Promise<void> => {
   try {
     const header = req.headers.authorization;
     if (!header || !header.startsWith("Bearer ")) {
@@ -29,7 +30,12 @@ export const protect = (
     }
     const token = header.split(" ")[1];
     const decoded = verifyToken(token);
-    req.user = decoded;
+    const user = await User.findById(decoded.id).select("name email role");
+    if (!user) {
+      res.status(401).json({ success: false, message: "Unauthorized: account no longer exists" });
+      return;
+    }
+    req.user = { id: String(user._id), name: user.name, email: user.email, role: user.role };
     next();
   } catch {
     res.status(401).json({ success: false, message: "Unauthorized: invalid token" });

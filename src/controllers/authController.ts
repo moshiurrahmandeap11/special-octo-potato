@@ -11,6 +11,9 @@ const DEFAULT_CREDITS: Record<string, number> = {
   admin: 0,
 };
 
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const STRONG_PASSWORD = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
+
 const sanitizeUser = (user: IUser) => ({
   _id: user._id,
   name: user.name,
@@ -26,6 +29,19 @@ export const register = async (req: Request, res: Response): Promise<void> => {
 
   if (!name || !email || !password || !role) {
     res.status(400).json({ success: false, message: "Name, email, password and role are required." });
+    return;
+  }
+
+  if (!EMAIL_PATTERN.test(String(email))) {
+    res.status(400).json({ success: false, message: "Please provide a valid email address." });
+    return;
+  }
+
+  if (!STRONG_PASSWORD.test(String(password))) {
+    res.status(400).json({
+      success: false,
+      message: "Password must be at least 8 characters and include uppercase, lowercase, and a number.",
+    });
     return;
   }
 
@@ -85,7 +101,7 @@ export const login = async (req: Request, res: Response): Promise<void> => {
 export const googleLogin = async (req: Request, res: Response): Promise<void> => {
   const { idToken } = req.body;
   if (!idToken) {
-    res.status(400).json({ success: false, message: "OpenAI ID token is required." });
+    res.status(400).json({ success: false, message: "Google ID token is required." });
     return;
   }
 
