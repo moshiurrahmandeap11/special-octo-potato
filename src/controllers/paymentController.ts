@@ -37,6 +37,13 @@ export const createPaymentIntent = async (req: Request, res: Response): Promise<
 
   // Dummy payment fallback when Stripe is not configured (per spec)
   if (!stripe) {
+    if (process.env.NODE_ENV === "production") {
+      res.status(503).json({
+        success: false,
+        message: "Payments are temporarily unavailable because Stripe is not configured.",
+      });
+      return;
+    }
     const transactionId = `dummy_${Date.now()}`;
     await Payment.create({
       userEmail: req.user!.email,
