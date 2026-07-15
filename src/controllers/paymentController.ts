@@ -1,6 +1,7 @@
+import "dotenv/config";
 import { Request, Response } from "express";
 import Stripe from "stripe";
-import Payment, { PURCHASE_CREDITS_PER_DOLLAR } from "../models/Payment.js";
+import Payment from "../models/Payment.js";
 import User from "../models/User.js";
 
 const stripe = process.env.STRIPE_SECRET_KEY
@@ -12,41 +13,41 @@ interface CreditPackage {
   amount: number; // dollars
 }
 
+const CREDIT_PACKAGES: CreditPackage[] = [
+  { credits: 100, amount: 10 },
+  { credits: 300, amount: 25 },
+  { credits: 800, amount: 60 },
+  { credits: 1500, amount: 110 },
+];
+
 // Public: list purchasable credit packages (10 credits = $1)
 export const getPackages = async (_req: Request, res: Response): Promise<void> => {
-  const packages: CreditPackage[] = [
-    { credits: 100, amount: 10 },
-    { credits: 300, amount: 25 },
-    { credits: 800, amount: 60 },
-    { credits: 1500, amount: 110 },
-  ];
-  res.status(200).json({ success: true, packages });
+  res.status(200).json({ success: true, packages: CREDIT_PACKAGES });
 };
 
 // Public (or user): create a Stripe checkout session, or dummy fallback
 export const createPaymentIntent = async (req: Request, res: Response): Promise<void> => {
-  const { credits, amount, dummy } = req.body;
-
-  if (!credits || !amount) {
-    res.status(400).json({ success: false, message: "credits and amount are required." });
+  const credits = Number(req.body.credits);
+  const requestedPackage = CREDIT_PACKAGES.find((item) => item.credits === credits);
+  if (!requestedPackage) {
+    res.status(400).json({ success: false, message: "Please select a valid credit package." });
     return;
   }
+  const amount = requestedPackage.amount;
 
   // Dummy payment fallback when Stripe is not configured (per spec)
-  if (dummy || !stripe) {
+  if (!stripe) {
     const transactionId = `dummy_${Date.now()}`;
-    if (req.user) {
-      await Payment.create({
-        userEmail: req.user.email,
-        userName: req.user.name,
-        credits,
-        amount,
-        paymentSystem: "Dummy",
-        transactionId,
-        status: "succeeded",
-      });
-      await User.updateOne({ email: req.user.email }, { $inc: { credits } });
-    }
+    await Payment.create({
+      userEmail: req.user!.email,
+      userName: req.user!.name,
+      credits,
+      amount,
+      paymentSystem: "Dummy",
+      transactionId,
+      status: "succeeded",
+    });
+    await User.updateOne({ email: req.user!.email }, { $inc: { credits } });
     res.status(200).json({
       success: true,
       dummy: true,
@@ -71,7 +72,7 @@ export const createPaymentIntent = async (req: Request, res: Response): Promise<
     mode: "payment",
     success_url: `${process.env.CLIENT_URL}/dashboard/payment-history?status=success`,
     cancel_url: `${process.env.CLIENT_URL}/dashboard/purchase-credit?status=cancel`,
-    metadata: { credits: String(credits), userEmail: req.user?.email ?? "" },
+    metadata: { credits: String(credits), userEmail: req.user!.email, userName: req.user!.name },
   });
 
   res.status(200).json({ success: true, url: session.url });
@@ -101,9 +102,13 @@ export const stripeWebhook = async (req: Request, res: Response): Promise<void> 
     const credits = Number(session.metadata?.credits ?? 0);
     const email = session.metadata?.userEmail ?? "";
     if (credits && email) {
+      if (await Payment.exists({ transactionId: session.id })) {
+        res.json({ received: true });
+        return;
+      }
       await Payment.create({
         userEmail: email,
-        userName: email,
+        userName: session.metadata?.userName || email,
         credits,
         amount: Number(session.amount_total) / 100,
         paymentSystem: "Stripe",

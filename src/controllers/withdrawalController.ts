@@ -3,6 +3,16 @@ import Withdrawal, { CREDITS_PER_DOLLAR } from "../models/Withdrawal.js";
 import Campaign from "../models/Campaign.js";
 import { createNotification } from "../utils/notify.js";
 
+const MIN_WITHDRAWAL_CREDITS = 200;
+
+const getPendingCredits = async (email: string): Promise<number> => {
+  const result = await Withdrawal.aggregate([
+    { $match: { creatorEmail: email, status: "pending" } },
+    { $group: { _id: null, total: { $sum: "$withdrawalCredit" } } },
+  ]);
+  return result[0]?.total ?? 0;
+};
+
 // Creator earnings + minimum eligibility
 export const withdrawalInfo = async (req: Request, res: Response): Promise<void> => {
   const raised = await Campaign.aggregate([
@@ -10,14 +20,18 @@ export const withdrawalInfo = async (req: Request, res: Response): Promise<void>
     { $group: { _id: null, totalRaised: { $sum: "$amountRaised" } } },
   ]);
   const totalRaised = raised[0]?.totalRaised ?? 0;
-  const withdrawalAmount = totalRaised / CREDITS_PER_DOLLAR;
+  const pendingCredits = await getPendingCredits(req.user!.email);
+  const availableRaised = Math.max(0, totalRaised - pendingCredits);
+  const withdrawalAmount = availableRaised / CREDITS_PER_DOLLAR;
   res.status(200).json({
     success: true,
     info: {
       totalRaised,
+      pendingCredits,
+      availableRaised,
       withdrawalAmount,
-      minCredits: 200,
-      eligible: totalRaised >= 200,
+      minCredits: MIN_WITHDRAWAL_CREDITS,
+      eligible: availableRaised >= MIN_WITHDRAWAL_CREDITS,
     },
   });
 };
@@ -27,7 +41,7 @@ export const requestWithdrawal = async (req: Request, res: Response): Promise<vo
   const { withdrawalCredit, paymentSystem, accountNumber } = req.body;
 
   const credits = Number(withdrawalCredit);
-  if (!credits || credits < 1) {
+  if (!Number.isInteger(credits) || credits < 1) {
     res.status(400).json({ success: false, message: "Valid withdrawal credit amount is required." });
     return;
   }
@@ -39,7 +53,15 @@ export const requestWithdrawal = async (req: Request, res: Response): Promise<vo
   ]);
   const totalRaised = raised[0]?.totalRaised ?? 0;
 
-  if (credits > totalRaised) {
+  if (totalRaised < MIN_WITHDRAWAL_CREDITS) {
+    res.status(400).json({ success: false, message: "At least 200 raised credits are required before withdrawing." });
+    return;
+  }
+
+  const pendingCredits = await getPendingCredits(req.user!.email);
+  const availableRaised = Math.max(0, totalRaised - pendingCredits);
+
+  if (credits > availableRaised) {
     res.status(400).json({ success: false, message: "Insufficient raised credits." });
     return;
   }
@@ -85,9 +107,6 @@ export const completeWithdrawal = async (req: Request, res: Response): Promise<v
     return;
   }
 
-  withdrawal.status = "approved";
-  await withdrawal.save();
-
   // Decrease the creator's raised credits across their campaigns proportionally
   // (simplest correct approach: subtract from the most-funded approved campaigns)
   let remaining = withdrawal.withdrawalCredit;
@@ -95,6 +114,25 @@ export const completeWithdrawal = async (req: Request, res: Response): Promise<v
     creatorEmail: withdrawal.creatorEmail,
     status: "approved",
   }).sort({ amountRaised: -1 });
+
+  const currentlyRaised = campaigns.reduce((sum, campaign) => sum + campaign.amountRaised, 0);
+  if (currentlyRaised < withdrawal.withdrawalCredit) {
+    res.status(409).json({
+      success: false,
+      message: "The creator no longer has enough raised credits for this withdrawal.",
+    });
+    return;
+  }
+
+  const claimed = await Withdrawal.findOneAndUpdate(
+    { _id: withdrawal._id, status: "pending" },
+    { status: "approved" },
+    { new: true }
+  );
+  if (!claimed) {
+    res.status(409).json({ success: false, message: "Withdrawal already processed." });
+    return;
+  }
 
   for (const c of campaigns) {
     if (remaining <= 0) break;
@@ -110,5 +148,5 @@ export const completeWithdrawal = async (req: Request, res: Response): Promise<v
     actionRoute: "/dashboard/withdrawals",
   });
 
-  res.status(200).json({ success: true, withdrawal });
+  res.status(200).json({ success: true, withdrawal: claimed });
 };

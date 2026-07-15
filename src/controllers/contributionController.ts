@@ -17,6 +17,10 @@ export const createContribution = async (req: Request, res: Response): Promise<v
   }
 
   const amount = Number(contributionAmount);
+  if (!Number.isFinite(amount) || amount <= 0 || !Number.isInteger(amount)) {
+    res.status(400).json({ success: false, message: "Contribution must be a positive whole number of credits." });
+    return;
+  }
   const campaign = await Campaign.findById(campaignId);
   if (!campaign) {
     res.status(404).json({ success: false, message: "Campaign not found." });
@@ -39,31 +43,38 @@ export const createContribution = async (req: Request, res: Response): Promise<v
   }
 
   // Deduct from supporter's available credits
-  const supporter = await User.findOne({ email: req.user!.email });
-  if (!supporter || supporter.credits < amount) {
+  const supporter = await User.findOneAndUpdate(
+    { email: req.user!.email, credits: { $gte: amount } },
+    { $inc: { credits: -amount } },
+    { new: true }
+  );
+  if (!supporter) {
     res.status(400).json({ success: false, message: "Insufficient credits." });
     return;
   }
-  supporter.credits -= amount;
-  await supporter.save();
-
-  const contribution = await Contribution.create({
-    campaignId: campaign._id,
-    campaignTitle: campaign.title,
-    contributionAmount: amount,
-    supporterEmail: req.user!.email,
-    supporterName: req.user!.name,
-    creatorName: campaign.creatorName,
-    creatorEmail: campaign.creatorEmail,
-    message,
-    status: "pending",
-  });
+  let contribution;
+  try {
+    contribution = await Contribution.create({
+      campaignId: campaign._id,
+      campaignTitle: campaign.title,
+      contributionAmount: amount,
+      supporterEmail: req.user!.email,
+      supporterName: req.user!.name,
+      creatorName: campaign.creatorName,
+      creatorEmail: campaign.creatorEmail,
+      message,
+      status: "pending",
+    });
+  } catch (error) {
+    await User.updateOne({ email: req.user!.email }, { $inc: { credits: amount } });
+    throw error;
+  }
 
   // Notify the creator about the new pending contribution
   await createNotification({
     message: `${req.user!.name} contributed ${amount} credits to "${campaign.title}".`,
     toEmail: campaign.creatorEmail,
-    actionRoute: "/dashboard/contributions-review",
+    actionRoute: "/dashboard/creator-home",
   });
 
   res.status(201).json({ success: true, contribution });
@@ -123,22 +134,15 @@ export const creatorPendingContributions = async (req: Request, res: Response): 
 };
 
 export const approveContribution = async (req: Request, res: Response): Promise<void> => {
-  const contribution = await Contribution.findOne({
+  const contribution = await Contribution.findOneAndUpdate({
     _id: req.params.id,
     creatorEmail: req.user!.email,
-  });
+    status: "pending",
+  }, { status: "approved" }, { new: true });
   if (!contribution) {
     res.status(404).json({ success: false, message: "Contribution not found." });
     return;
   }
-  if (contribution.status !== "pending") {
-    res.status(400).json({ success: false, message: "Contribution is already processed." });
-    return;
-  }
-
-  contribution.status = "approved";
-  await contribution.save();
-
   // Add the amount to the campaign's raised total
   await Campaign.updateOne(
     { _id: contribution.campaignId },
@@ -155,22 +159,15 @@ export const approveContribution = async (req: Request, res: Response): Promise<
 };
 
 export const rejectContribution = async (req: Request, res: Response): Promise<void> => {
-  const contribution = await Contribution.findOne({
+  const contribution = await Contribution.findOneAndUpdate({
     _id: req.params.id,
     creatorEmail: req.user!.email,
-  });
+    status: "pending",
+  }, { status: "rejected" }, { new: true });
   if (!contribution) {
     res.status(404).json({ success: false, message: "Contribution not found." });
     return;
   }
-  if (contribution.status !== "pending") {
-    res.status(400).json({ success: false, message: "Contribution is already processed." });
-    return;
-  }
-
-  contribution.status = "rejected";
-  await contribution.save();
-
   // Refund the supporter's credits
   await User.updateOne(
     { email: contribution.supporterEmail },

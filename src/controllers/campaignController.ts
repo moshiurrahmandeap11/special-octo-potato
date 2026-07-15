@@ -15,8 +15,7 @@ const toDate = (value: unknown): Date | undefined => {
 
 // Top 6 funded (approved) campaigns by amount raised
 export const getTopFunded = async (_req: Request, res: Response): Promise<void> => {
-  const now = new Date();
-  const campaigns = await Campaign.find({ status: "approved", deadline: { $gte: now } })
+  const campaigns = await Campaign.find({ status: "approved" })
     .sort({ amountRaised: -1 })
     .limit(6);
   res.status(200).json({ success: true, campaigns });
@@ -45,7 +44,7 @@ export const exploreCampaigns = async (req: Request, res: Response): Promise<voi
 };
 
 export const getCampaignById = async (req: Request, res: Response): Promise<void> => {
-  const campaign = await Campaign.findById(req.params.id);
+  const campaign = await Campaign.findOne({ _id: req.params.id, status: "approved" });
   if (!campaign) {
     res.status(404).json({ success: false, message: "Campaign not found." });
     return;
@@ -73,8 +72,14 @@ export const createCampaign = async (req: Request, res: Response): Promise<void>
   }
 
   const dl = toDate(deadline);
-  if (!dl) {
-    res.status(400).json({ success: false, message: "Invalid deadline date." });
+  const goal = Number(fundingGoal);
+  const minimum = Number(minimumContribution);
+  if (!dl || dl <= new Date()) {
+    res.status(400).json({ success: false, message: "Deadline must be a future date." });
+    return;
+  }
+  if (!Number.isFinite(goal) || goal <= 0 || !Number.isFinite(minimum) || minimum <= 0) {
+    res.status(400).json({ success: false, message: "Funding goal and minimum contribution must be positive numbers." });
     return;
   }
 
@@ -82,8 +87,8 @@ export const createCampaign = async (req: Request, res: Response): Promise<void>
     title,
     story,
     category: category || "Other",
-    fundingGoal: Number(fundingGoal),
-    minimumContribution: Number(minimumContribution),
+    fundingGoal: goal,
+    minimumContribution: minimum,
     deadline: dl,
     rewardInfo: rewardInfo || "",
     imageURL: imageURL || "",
@@ -116,15 +121,21 @@ export const updateCampaign = async (req: Request, res: Response): Promise<void>
 
 // Delete a campaign and refund all approved contributors
 export const deleteCampaign = async (req: Request, res: Response): Promise<void> => {
-  const campaign = await Campaign.findOne({ _id: req.params.id, creatorEmail: req.user!.email });
+  const filter = req.user!.role === "admin"
+    ? { _id: req.params.id }
+    : { _id: req.params.id, creatorEmail: req.user!.email };
+  const campaign = await Campaign.findOne(filter);
   if (!campaign) {
-    res.status(404).json({ success: false, message: "Campaign not found or not owned by you." });
+    res.status(404).json({ success: false, message: "Campaign not found or not available to delete." });
     return;
   }
 
   // Find approved contributions to refund supporters
-  const approved = await Contribution.find({ campaignId: campaign._id, status: "approved" });
-  for (const c of approved) {
+  const refundable = await Contribution.find({
+    campaignId: campaign._id,
+    status: { $in: ["approved", "pending"] },
+  });
+  for (const c of refundable) {
     await User_creditRefund(c.supporterEmail, c.contributionAmount);
   }
   await Contribution.deleteMany({ campaignId: campaign._id });
@@ -163,8 +174,8 @@ export const getPendingCampaigns = async (_req: Request, res: Response): Promise
 };
 
 export const approveCampaign = async (req: Request, res: Response): Promise<void> => {
-  const campaign = await Campaign.findByIdAndUpdate(
-    req.params.id,
+  const campaign = await Campaign.findOneAndUpdate(
+    { _id: req.params.id, status: "pending" },
     { status: "approved" },
     { new: true }
   );
@@ -181,8 +192,8 @@ export const approveCampaign = async (req: Request, res: Response): Promise<void
 };
 
 export const rejectCampaign = async (req: Request, res: Response): Promise<void> => {
-  const campaign = await Campaign.findByIdAndUpdate(
-    req.params.id,
+  const campaign = await Campaign.findOneAndUpdate(
+    { _id: req.params.id, status: "pending" },
     { status: "rejected" },
     { new: true }
   );

@@ -28,7 +28,7 @@ router.post("/", protect, restrictTo("creator"), asyncHandler(createCampaign));
 router.get("/my/list", protect, restrictTo("creator"), asyncHandler(myCampaigns));
 router.get("/creator/stats", protect, restrictTo("creator"), asyncHandler(creatorHomeStats));
 router.patch("/:id", protect, restrictTo("creator"), asyncHandler(updateCampaign));
-router.delete("/:id", protect, restrictTo("creator"), asyncHandler(deleteCampaign));
+router.delete("/:id", protect, restrictTo("creator", "admin"), asyncHandler(deleteCampaign));
 
 // Admin
 router.get(

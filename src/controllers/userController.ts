@@ -1,5 +1,6 @@
 import { Request, Response } from "express";
 import User from "../models/User.js";
+import Payment from "../models/Payment.js";
 
 export const getAllUsers = async (req: Request, res: Response): Promise<void> => {
   const users = await User.find().select("-password").sort({ createdAt: -1 });
@@ -35,14 +36,15 @@ export const deleteUser = async (req: Request, res: Response): Promise<void> => 
 
 // Admin dashboard stats
 export const getUserStats = async (_req: Request, res: Response): Promise<void> => {
-  const [supporters, creators, all] = await Promise.all([
+  const [supporters, creators, all, totalPayments] = await Promise.all([
     User.countDocuments({ role: "supporter" }),
     User.countDocuments({ role: "creator" }),
     User.find({}, "credits"),
+    Payment.countDocuments({ status: "succeeded" }),
   ]);
   const totalCredits = all.reduce((sum, u) => sum + (u.credits ?? 0), 0);
   res.status(200).json({
     success: true,
-    stats: { totalSupporters: supporters, totalCreators: creators, totalCredits },
+    stats: { totalSupporters: supporters, totalCreators: creators, totalCredits, totalPayments },
   });
 };

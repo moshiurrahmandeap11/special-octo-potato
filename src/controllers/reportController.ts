@@ -1,6 +1,8 @@
 import { Request, Response } from "express";
 import Report from "../models/Report.js";
 import Campaign from "../models/Campaign.js";
+import Contribution from "../models/Contribution.js";
+import User from "../models/User.js";
 
 // Supporter: report a campaign as suspicious/fraudulent
 export const createReport = async (req: Request, res: Response): Promise<void> => {
@@ -41,6 +43,17 @@ export const resolveReport = async (req: Request, res: Response): Promise<void> 
   }
 
   if (action === "delete") {
+    const refundable = await Contribution.find({
+      campaignId: report.campaignId,
+      status: { $in: ["approved", "pending"] },
+    });
+    for (const contribution of refundable) {
+      await User.updateOne(
+        { email: contribution.supporterEmail },
+        { $inc: { credits: contribution.contributionAmount } }
+      );
+    }
+    await Contribution.deleteMany({ campaignId: report.campaignId });
     await Campaign.findByIdAndDelete(report.campaignId);
   } else if (action === "suspend") {
     await Campaign.findByIdAndUpdate(report.campaignId, { status: "rejected" });

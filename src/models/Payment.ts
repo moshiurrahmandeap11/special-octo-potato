@@ -32,6 +32,7 @@ const paymentSchema = new Schema<IPayment>(
 );
 
 paymentSchema.index({ userEmail: 1 });
+paymentSchema.index({ transactionId: 1 }, { unique: true });
 
 export const PURCHASE_CREDITS_PER_DOLLAR = 10;
 
