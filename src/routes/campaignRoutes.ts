@@ -3,6 +3,7 @@ import { asyncHandler } from "../middleware/asyncHandler.js";
 import { protect, restrictTo } from "../middleware/auth.js";
 import {
   getTopFunded,
+  getPlatformStats,
   exploreCampaigns,
   getCampaignById,
   createCampaign,
@@ -20,6 +21,7 @@ const router = Router();
 
 // Public / supporter-facing
 router.get("/top-funded", asyncHandler(getTopFunded));
+router.get("/platform/stats", asyncHandler(getPlatformStats));
 router.get("/explore", asyncHandler(exploreCampaigns));
 router.get("/:id", asyncHandler(getCampaignById));
 

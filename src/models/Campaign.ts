@@ -12,6 +12,7 @@ export type CampaignCategory =
 
 export interface ICampaign extends Document {
   title: string;
+  shortDescription: string;
   story: string;
   category: CampaignCategory;
   fundingGoal: number;
@@ -30,6 +31,7 @@ export interface ICampaign extends Document {
 const campaignSchema = new Schema<ICampaign>(
   {
     title: { type: String, required: true },
+    shortDescription: { type: String, required: true, maxlength: 220, default: "" },
     story: { type: String, required: true },
     category: {
       type: String,

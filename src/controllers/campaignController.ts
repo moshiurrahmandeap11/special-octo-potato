@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 import Campaign from "../models/Campaign.js";
 import Contribution from "../models/Contribution.js";
 import { createNotification } from "../utils/notify.js";
+import User from "../models/User.js";
 
 // Convert a value to a Date, or return undefined when invalid
 const toDate = (value: unknown): Date | undefined => {
@@ -23,7 +24,9 @@ export const getTopFunded = async (_req: Request, res: Response): Promise<void> 
 
 // Explore: approved campaigns whose deadline has not passed, with optional search/filter
 export const exploreCampaigns = async (req: Request, res: Response): Promise<void> => {
-  const { category, search, sort } = req.query;
+  const { category, search, sort, minGoal, maxGoal, deadlineDays } = req.query;
+  const page = Math.max(1, Number(req.query.page) || 1);
+  const limit = Math.min(24, Math.max(1, Number(req.query.limit) || 8));
   const filter: Record<string, unknown> = { status: "approved", deadline: { $gte: new Date() } };
 
   if (category && category !== "All") filter.category = category;
@@ -34,13 +37,57 @@ export const exploreCampaigns = async (req: Request, res: Response): Promise<voi
     ];
   }
 
+  const goalFilter: Record<string, number> = {};
+  if (minGoal !== undefined && minGoal !== "" && Number(minGoal) >= 0) goalFilter.$gte = Number(minGoal);
+  if (maxGoal !== undefined && maxGoal !== "" && Number(maxGoal) > 0) goalFilter.$lte = Number(maxGoal);
+  if (Object.keys(goalFilter).length) filter.fundingGoal = goalFilter;
+  if (Number(deadlineDays) > 0) {
+    const end = new Date();
+    end.setDate(end.getDate() + Number(deadlineDays));
+    filter.deadline = { $gte: new Date(), $lte: end };
+  }
+
   let query = Campaign.find(filter);
   if (sort === "newest") query = query.sort({ createdAt: -1 });
   else if (sort === "deadline") query = query.sort({ deadline: 1 });
   else query = query.sort({ amountRaised: -1 });
 
-  const campaigns = await query;
-  res.status(200).json({ success: true, count: campaigns.length, campaigns });
+  const [campaigns, total] = await Promise.all([
+    query.skip((page - 1) * limit).limit(limit),
+    Campaign.countDocuments(filter),
+  ]);
+  res.status(200).json({
+    success: true,
+    count: campaigns.length,
+    campaigns,
+    pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+  });
+};
+
+export const getPlatformStats = async (_req: Request, res: Response): Promise<void> => {
+  const [supporters, creators, approvedCampaigns, pledged, fundedCampaigns] = await Promise.all([
+    User.countDocuments({ role: "supporter" }),
+    User.countDocuments({ role: "creator" }),
+    Campaign.countDocuments({ status: "approved" }),
+    Campaign.aggregate([
+      { $match: { status: "approved" } },
+      { $group: { _id: null, total: { $sum: "$amountRaised" } } },
+    ]),
+    Campaign.countDocuments({
+      status: "approved",
+      $expr: { $gte: ["$amountRaised", "$fundingGoal"] },
+    }),
+  ]);
+  res.status(200).json({
+    success: true,
+    stats: {
+      supporters,
+      creators,
+      approvedCampaigns,
+      creditsPledged: pledged[0]?.total ?? 0,
+      fundedCampaigns,
+    },
+  });
 };
 
 export const getCampaignById = async (req: Request, res: Response): Promise<void> => {
@@ -57,6 +104,7 @@ export const getCampaignById = async (req: Request, res: Response): Promise<void
 export const createCampaign = async (req: Request, res: Response): Promise<void> => {
   const {
     title,
+    shortDescription,
     story,
     category,
     fundingGoal,
@@ -66,7 +114,7 @@ export const createCampaign = async (req: Request, res: Response): Promise<void>
     imageURL,
   } = req.body;
 
-  if (!title || !story || !fundingGoal || !minimumContribution || !deadline) {
+  if (!title || !shortDescription || !story || !fundingGoal || !minimumContribution || !deadline) {
     res.status(400).json({ success: false, message: "Missing required campaign fields." });
     return;
   }
@@ -85,6 +133,7 @@ export const createCampaign = async (req: Request, res: Response): Promise<void>
 
   const campaign = await Campaign.create({
     title,
+    shortDescription,
     story,
     category: category || "Other",
     fundingGoal: goal,
@@ -106,10 +155,10 @@ export const myCampaigns = async (req: Request, res: Response): Promise<void> =>
 };
 
 export const updateCampaign = async (req: Request, res: Response): Promise<void> => {
-  const { title, story, rewardInfo } = req.body;
+  const { title, shortDescription, story, rewardInfo } = req.body;
   const campaign = await Campaign.findOneAndUpdate(
     { _id: req.params.id, creatorEmail: req.user!.email },
-    { title, story, rewardInfo },
+    { title, shortDescription, story, rewardInfo },
     { new: true, runValidators: true }
   );
   if (!campaign) {
@@ -145,7 +194,6 @@ export const deleteCampaign = async (req: Request, res: Response): Promise<void>
 };
 
 // Small helper kept local to avoid circular import noise
-import User from "../models/User.js";
 const User_creditRefund = async (email: string, amount: number) => {
   await User.updateOne({ email }, { $inc: { credits: amount } });
 };
