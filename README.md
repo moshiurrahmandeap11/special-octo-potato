@@ -1,76 +1,62 @@
-# Crowdfunding Platform — API Server
+# FundHorizon API
 
-Express + TypeScript + Mongoose backend for the Crowdfunding Platform assessment.
+Express, TypeScript, and MongoDB API for the FundHorizon crowdfunding platform.
 
-## Tech Stack
-- **Node.js + TypeScript** (ESM)
-- **Express** — HTTP server & routing
-- **Mongoose / MongoDB** — data layer
-- **jsonwebtoken + bcryptjs** — auth & password hashing
-- **Stripe** — payments (optional, dummy fallback included)
-- **dotenv** — environment configuration
+## Stack
+
+- Node.js, Express, TypeScript, and Mongoose
+- JWT authentication and bcrypt password hashing
+- Google ID-token verification
+- Stripe Checkout with a development fallback
+- Role authorization for supporter, creator, and admin accounts
 
 ## Setup
+
 ```bash
 npm install
-cp .env.example .env   # or keep the provided .env
-npm run seed           # creates the admin account from .env values
-npm run dev            # tsx watch (hot reload)
-# or
-npm run build && npm start
+copy .env.example .env
+npm run seed
+npm run dev
 ```
 
+The seed command creates the admin configured by `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `ADMIN_NAME`, and `ADMIN_PHOTO`.
+
 ## Scripts
+
 | Script | Description |
-| ------ | ----------- |
-| `npm run dev` | Run with hot reload (tsx watch) |
-| `npm run build` | Compile TypeScript to `dist/` |
-| `npm start` | Run compiled `dist/index.js` |
-| `npm run seed` | Seed the admin user |
+| --- | --- |
+| `npm run dev` | Run with hot reload |
+| `npm run build` | Compile TypeScript |
+| `npm run start` | Run compiled API |
+| `npm run seed` | Seed/update the configured admin |
 | `npm run typecheck` | Type-check without emitting |
 
-## Environment Variables (`.env`)
-- `PORT` — server port (default 5000)
-- `MONGODB_URI` — MongoDB connection string
-- `JWT_SECRET` — secret for signing tokens
-- `GOOGLE_CLIENT_ID` — OpenAI sign-in verification (optional)
-- `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` — Stripe (optional; dummy fallback used when absent)
-- `IMGBB_API_KEY` — image uploads (optional)
-- `ADMIN_EMAIL` / `ADMIN_PASSWORD` / `ADMIN_NAME` / `ADMIN_PHOTO` — seed credentials
-- `CLIENT_URL` — CORS origin
+## Environment
 
-## API Endpoints
-| Method | Path | Access | Description |
-| ------ | ---- | ------ | ----------- |
-| POST | `/api/auth/register` | Public | Register supporter/creator (grants 50/20 credits) |
-| POST | `/api/auth/login` | Public | Email/password login |
-| POST | `/api/auth/OpenAI` | Public | OpenAI sign-in (upsert supporter) |
-| GET | `/api/auth/me` | Auth | Current user |
-| GET | `/api/campaigns/top-funded` | Public | Top 6 funded |
-| GET | `/api/campaigns/explore` | Public | Approved, open campaigns (+search/filter) |
-| GET | `/api/campaigns/:id` | Public | Campaign detail |
-| POST | `/api/campaigns/` | Creator | Create (status: pending) |
-| GET | `/api/campaigns/my/list` | Creator | My campaigns |
-| PATCH | `/api/campaigns/:id` | Creator | Update own campaign |
-| DELETE | `/api/campaigns/:id` | Creator | Delete + refund |
-| PATCH | `/api/campaigns/:id/approve` | Admin | Approve campaign |
-| PATCH | `/api/campaigns/:id/reject` | Admin | Reject campaign |
-| POST | `/api/contributions/` | Supporter | New contribution (pending) |
-| GET | `/api/contributions/my` | Supporter | Paginated my contributions |
-| PATCH | `/api/contributions/:id/approve` | Creator | Approve (adds to raised) |
-| PATCH | `/api/contributions/:id/reject` | Creator | Reject (refunds) |
-| GET | `/api/withdrawals/info` | Creator | Earnings + eligibility |
-| POST | `/api/withdrawals/request` | Creator | Withdraw request |
-| PATCH | `/api/withdrawals/:id/complete` | Admin | Process withdrawal |
-| GET | `/api/notifications/` | Auth | My notifications |
-| GET | `/api/payments/packages` | Public | Credit packages |
-| POST | `/api/payments/create-intent` | Public/Auth | Stripe session / dummy |
-| POST | `/api/reports/` | Supporter | Report a campaign |
-| GET | `/api/users/` | Admin | Manage users |
-| PATCH | `/api/users/:id/role` | Admin | Change role |
+Copy `.env.example` and configure MongoDB, JWT, Google, Stripe, imgBB, admin credentials, the client origin, and the server port. Never commit the real `.env` file.
 
-## Business Rules
-- **Credits:** Supporter starts with 50, Creator with 20 (once, on registration).
-- **Purchase:** 10 credits = $1. **Withdrawal:** 20 credits = $1 (platform margin).
-- **Withdrawal min:** 200 raised credits ($10).
-- **Notifications** are auto-created on contribution / approve / reject / withdrawal events.
+## Main API capabilities
+
+- Registration, login, Google login, JWT profile restoration, and starter credits
+- Approved/open campaign discovery, top-funded campaigns, and creator campaign management
+- Paginated supporter contributions and atomic approve/reject/refund processing
+- Stripe or fallback credit purchases with payment history
+- Creator withdrawal requests and admin processing
+- Admin statistics, users, roles, campaign approval, and campaign deletion
+- Fraud reports and campaign suspension/deletion
+- User-scoped notifications sorted newest-first
+
+## Business rules
+
+- Supporters receive 50 credits and creators receive 20 credits exactly once at registration.
+- Credit purchase packages are fixed server-side; clients cannot choose arbitrary prices.
+- Purchases use 10 credits per dollar; creator withdrawals use 20 credits per dollar.
+- Creators need at least 200 available raised credits to begin withdrawing.
+- Pending withdrawals reserve raised credits to prevent duplicate over-withdrawal requests.
+
+## Verification
+
+```bash
+npm run typecheck
+npm run build
+```
